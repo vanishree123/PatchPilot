@@ -1,0 +1,10 @@
+/devpost/learner-profile.md
+.env
+.env.*
+!.env.example
+/.venv/
+/runtime/demo_workspaces/
+__pycache__/
+.pytest_cache/
+*.py[cod]
+.streamlit/secrets.toml
