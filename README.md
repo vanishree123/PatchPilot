@@ -1,61 +1,126 @@
 # PatchPilot
 
-PatchPilot is a local proof of concept for an inspectable repair of one built-in Python discount bug. The **Repair Demo Bug** dashboard action uses the configured Gemini provider when a key is present. A no-key or pre-response provider failure is shown clearly; the user then chooses **Try Predefined Demo Repair** to run the labeled fallback. A returned but invalid AI candidate is rejected and never written.
+PatchPilot is a local proof of concept for inspecting and verifying a repair to one deliberately buggy Python function. It is aimed at Python developers and QA automation engineers who want to see a small, bounded bug-repair workflow end to end.
 
-## Requirements
+The built-in shop example applies a 10% discount twice: `apply_discount(100)` returns `80`, while the expected result is `90`. PatchPilot shows that baseline failure, requests a candidate from Gemini when configured, checks the candidate, applies it to a disposable copy, and reports the actual result of the fixed targeted test.
 
-- Windows and Python 3.11 or newer. This project was prepared against Python 3.14.5; use the installed compatible Python in the commands below.
-- Git for local version control.
+> **Live Gemini status:** Real generation has not been verified successfully. The latest live result reported by the project owner was HTTP 503 (temporary service unavailability). Offline tests do not establish that Gemini is available.
 
-## Setup (PowerShell)
+## Features
 
-From the project folder:
+- One deterministic discount bug, one fixed test, and one local Streamlit dashboard.
+- Configurable Gemini model through the Interactions API with structured JSON output.
+- Strict JSON and Python AST validation before a candidate can be written.
+- A separate, explicitly selected **Predefined Demo Repair — Not AI-Generated** path. A failed or rejected Gemini attempt is not silently replaced.
+- Repairs are written only into a fresh demo workspace. The original fixture is SHA-256 checked before and after each attempt.
+- The runner executes only `python -m pytest tests/test_discount.py -q`, with argument-list process execution, `shell=False`, plugin autoload disabled, and a timeout.
+- AI attempt history is transient within the current workflow. **Reset Demo** clears it.
+
+## Workflow
+
+1. **Baseline Test** runs against a fresh copy and shows the failure (`80`, expected `90`).
+2. **Analyze Bug** and **Propose Repair** show the configured provider result and its provenance.
+3. **Validate Patch** parses the exact JSON response and checks the replacement function against a narrow AST allowlist.
+4. **Apply to Demo Copy** writes the validated function only to `buggy_discount.py` in a new workspace.
+5. **Verify with Tests** runs the fixed targeted test and reports its real output and status.
+6. If Gemini returns no candidate, or a returned candidate is rejected or fails verification, the dashboard presents the relevant reason. The user may choose **Try Predefined Demo Repair** as a separate action. It starts in a fresh copy and keeps the prior attempt in the current workflow history.
+
+A passing targeted test is evidence for this example only. It does not prove universal correctness or security. See [Architecture](docs/ARCHITECTURE.md), [Security](docs/SECURITY.md), and [Testing](docs/TESTING.md) for details.
+
+## Architecture
+
+| Component | Responsibility |
+| --- | --- |
+| `app.py` | Streamlit dashboard, button handling, status display, and transient session history. |
+| `patchpilot/workflow.py` | Coordinates baseline, repair attempt, explicit predefined retry, result history, and source-hash checks. |
+| `patchpilot/repair_service.py` | Calls the configured repair provider, parses the response, and distinguishes unavailable, rejected, AI, and predefined results. |
+| `patchpilot/providers/gemini_provider.py` | Sends the built-in function to Gemini using the Interactions API and structured JSON response format; sanitizes diagnostics. |
+| `patchpilot/patch_validator.py` | Validates the JSON shape and AST allowlist, then writes only the approved function to a controlled copy. |
+| `patchpilot/workspace.py` | Creates fresh copies of the original fixture and fixed test; calculates and checks SHA-256. |
+| `patchpilot/test_runner.py` | Runs the fixed pytest argument list without a shell and classifies pass, failure, and timeout. |
+| `patchpilot/config.py` | Loads provider, model, key, and timeout settings from the process environment and local `.env`. |
+
+## Technology
+
+- Python 3.11 or newer (the current project environment uses Python 3.14.5).
+- Streamlit 1.66.1
+- Google Gen AI Python SDK (`google-genai`) 2.32.0
+- `python-dotenv` 1.2.4
+- pytest 9.1.1
+
+Pinned dependencies are listed in `requirements.txt`. A clean temporary virtual environment created with `py -3` successfully installed `requirements.txt` on Python 3.14.5 during this review, and `pip check` reported no broken requirements. Python 3.11 or newer is the documented minimum.
+
+## Windows setup (PowerShell)
+
+From the project directory, create a virtual environment and install the pinned dependencies:
 
 ```powershell
-py -3.14 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
+py -3 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+```
+
+If the Python launcher is unavailable, create the environment with your installed Python 3.11+ executable, for example `python -m venv .venv`. You do not need to activate the environment when using the explicit `.venv\Scripts\python.exe` commands.
+
+### Gemini configuration
+
+Copy the template and edit `.env` locally:
+
+```powershell
 Copy-Item .env.example .env
+notepad .env
 ```
 
-`.env` is local and ignored by Git. Open it in a text editor and replace the placeholder for `GEMINI_API_KEY` with a key from Google AI Studio. Keep the key in `.env`; do not paste it into the application, chat, screenshots, or commit it. You can change `GEMINI_MODEL` there without editing Python code. The example defaults to `gemini-3.8-flash`.
+Set `GEMINI_API_KEY` to your own Google AI Studio key. The template uses placeholders only. `.env` is ignored by Git; never paste the key into source code, chat, screenshots, issue reports, or logs. The model and timeouts are configurable:
 
-The repair request sends only the built-in synthetic discount function and its expected behavior. The API call uses a 45-second timeout and does not retry automatically. Missing credentials, quota/rate limits, API errors, and generation timeouts are reported without showing the key. No API request occurs at app startup; selecting **Repair Demo Bug** with a configured key starts the model request. If no candidate returns, the dashboard does not apply a fallback automatically; the user explicitly chooses **Try Predefined Demo Repair**.
+```dotenv
+AI_PROVIDER=gemini
+GEMINI_MODEL=gemini-3.8-flash
+GEMINI_API_KEY=replace-with-your-own-key
+GEMINI_REQUEST_TIMEOUT_MS=90000
+TEST_TIMEOUT_SECONDS=10
+```
 
-## Architecture and safety
+Do not share or commit a populated `.env`. Check current model/API support, account access, quota, and pricing in the [Gemini API documentation](https://ai.google.dev/gemini-api/docs) before a live request. A user-triggered Gemini request may consume quota or incur charges depending on account and billing settings. No API call is made at app startup or by the offline test suite.
 
-`app.py` passes the user's dashboard action to `patchpilot.workflow.run_demo`. The workflow loads configuration, calls the provider-neutral repair service, and routes a configured request through `patchpilot.providers.gemini_provider`. The service strictly parses Gemini's JSON response and applies the AST allowlist before the workflow can write anything. Validated functions can only replace `apply_discount` in a fresh workspace copy; the original `examples/buggy_discount.py` is hashed before and after each attempt.
-
-PatchPilot runs only `python -m pytest tests/test_discount.py -q` in the controlled demo workspace, with argument-list execution, `shell=False`, plugin autoload disabled, and a timeout. These checks reduce risk but are not an OS-level sandbox for arbitrary untrusted code. No model-provided commands, paths, or environment changes are accepted. A passing targeted test is evidence for this example only; it does not prove all cases work or establish universal correctness or security.
-
-The predefined retry is a separate user action after Gemini is unavailable, returns no candidate, or returns a rejected/failed candidate. It starts from a fresh copy and retains the previous result in the current session. **Reset Demo** clears that transient history.
-
-## Run the app
+## Run PatchPilot
 
 ```powershell
-python -m streamlit run app.py
+.\.venv\Scripts\python.exe -m streamlit run app.py
 ```
 
-Open `http://localhost:8501`, select **Repair Demo Bug**, and inspect the baseline failure, repair provenance label, validation result, targeted test output, and source-preservation status. A passing test verifies this example only; it does not prove universal correctness or security.
+Open the local URL printed by Streamlit (normally `http://localhost:8501`) and select **Repair Demo Bug**. With a key configured, this action can make one real Gemini request. The provider is configured with a 90,000 ms request timeout and automatic SDK retries disabled. A successful real Gemini repair has not yet been verified. If no candidate is returned, use the displayed failure and explicitly choose **Try Predefined Demo Repair** if you want the built-in fallback.
 
-### Genuine Gemini demonstration
+For a genuine Gemini result, confirm the dashboard labels the attempt **AI-Generated**, patch validation passes, the actual targeted test passes, and the original fixture hash is unchanged. Do not count a predefined repair or mocked test response as an AI result. A candidate that is rejected, fails its test, times out, or fails the source-integrity check is not a successful repair.
 
-1. Configure a valid key in the local `.env` file as described above; never include it in a screenshot or recording.
-2. Start the dashboard and select **Repair Demo Bug** once. This is the user-triggered Gemini API request.
-3. Confirm the result is labeled **AI-Generated**, inspect the returned function and patch validation, and confirm the targeted test actually passes and the original SHA-256 matches.
-4. If Gemini is unavailable or the candidate fails validation or verification, show the displayed failure and choose **Try Predefined Demo Repair** only if you want to continue with the clearly labeled fallback. Never call the fallback result AI-generated.
-
-Model availability: Google currently lists `gemini-3.8-flash` as a stable Gemini Developer API model with structured-output support. Its pricing page lists a free tier and a paid tier (currently $0.75 per million input tokens and $3.75 per million output tokens through 2026-12-31); account eligibility and billing settings can differ. Review your account pricing before selecting **Repair Demo Bug** with a key configured. [Model availability](https://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash) · [Pricing](https://ai.google.dev/gemini-api/docs/pricing).
-
-## Run automated tests
+## Automated tests
 
 ```powershell
-python -m pytest -q
+.\.venv\Scripts\python.exe -m pytest -q -rs
 ```
 
-Last verification on 2026-10-27: `python -m pytest -q -rs` completed with **41 passed, 1 skipped, 1 warning**. The skip is expected because the target discount test runs only inside a controlled demo workspace. The warning is a Google GenAI SDK deprecation warning for a Python typing alias slated for removal in Python 3.17. The original fixture SHA-256 remained `2E1E631D991BA35EFC657CDE890DCA037655F669A76E1B30B337AE2F4720A50B`.
+The `tests/test_gemini_provider.py` and workflow provider tests use explicitly marked mocks; they do not call Gemini. The fixed `tests/test_discount.py` is skipped when run from the repository root because its `buggy_discount` module is copied into, and executed from, a controlled demo workspace by PatchPilot. See [Testing](docs/TESTING.md) for test coverage and the latest verified results.
 
-The app's controlled test runner separately invokes only `python -m pytest tests/test_discount.py -q` in a fresh demo workspace, without a shell and with a timeout.
+## Limitations and roadmap
 
-Tests of the Gemini adapter use a mocked SDK client. They verify request construction and error mapping without contacting Gemini; a mocked response is never presented as an actual AI-generated repair in the UI. No live Gemini request or result has been verified yet.
+- Only the built-in discount example is supported. There is no arbitrary repository upload or repair.
+- The AST allowlist intentionally rejects many otherwise valid Python styles.
+- A targeted test pass does not prove correctness for other inputs, correctness in production, or security.
+- The demo workspace and subprocess controls reduce risk; they are not an operating-system sandbox for arbitrary untrusted programs.
+- Gemini can be unavailable, rate limited, or return a rejected candidate. The predefined repair remains a distinct, user-selected path and is not evidence of AI generation.
+- Live API behavior and current model/account availability depend on Google and account configuration. No successful live Gemini repair is claimed.
+
+Possible later work, after reviewing the safety model, includes additional fixed examples, richer repair comparisons, and support for user-provided projects. These are not part of the current MVP.
+
+## Project documents
+
+- [Architecture](docs/ARCHITECTURE.md)
+- [Security](docs/SECURITY.md)
+- [Testing](docs/TESTING.md)
+- [Troubleshooting](docs/TROUBLESHOOTING.md)
+- [Contributing](CONTRIBUTING.md)
+- Planning artifacts: [scope](devpost/scope.md), [PRD](devpost/prd.md), [technical spec](devpost/spec.md), and [build checklist](devpost/checklist.md)
+
+## License
+
+This repository uses the Zero-Clause BSD (0BSD) license. It was chosen as a permissive license that does not require inserting an invented person or organization as the copyright holder. See [LICENSE](LICENSE).

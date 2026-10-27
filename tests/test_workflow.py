@@ -15,7 +15,7 @@ from patchpilot.workspace import ORIGINAL_FIXTURE, WORKSPACE_ROOT, sha256_file
 
 def test_no_key_requires_explicit_predefined_repair_and_preserves_source():
     original_hash = sha256_file()
-    settings = Settings("gemini", "gemini-3.8-flash", None, 45_000, 10)
+    settings = Settings("gemini", "gemini-3.8-flash", None, 90_000, 10)
 
     unavailable = run_demo(settings)
 

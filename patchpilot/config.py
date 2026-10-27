@@ -43,7 +43,7 @@ def load_settings() -> Settings:
         gemini_model=model,
         gemini_api_key=key,
         gemini_request_timeout_ms=_positive_int(
-            "GEMINI_REQUEST_TIMEOUT_MS", 45_000, maximum=300_000
+            "GEMINI_REQUEST_TIMEOUT_MS", 90_000, maximum=300_000
         ),
         test_timeout_seconds=_positive_int(
             "TEST_TIMEOUT_SECONDS", 10, maximum=120

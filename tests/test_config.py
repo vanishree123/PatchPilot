@@ -15,7 +15,7 @@ def test_settings_loads_defaults_without_api_key(monkeypatch):
     assert settings.ai_provider == "gemini"
     assert settings.gemini_model == "gemini-3.8-flash"
     assert settings.gemini_api_key is None
-    assert settings.gemini_request_timeout_ms == 45_000
+    assert settings.gemini_request_timeout_ms == 90_000
     assert settings.test_timeout_seconds == 10
 
 
@@ -25,6 +25,14 @@ def test_settings_keep_model_configurable_and_validate_timeout(monkeypatch):
 
     with pytest.raises(ValueError, match="TEST_TIMEOUT_SECONDS"):
         load_settings()
+
+
+def test_settings_uses_configured_gemini_request_timeout(monkeypatch):
+    monkeypatch.setenv("GEMINI_REQUEST_TIMEOUT_MS", "90000")
+
+    settings = load_settings()
+
+    assert settings.gemini_request_timeout_ms == 90_000
 
 
 def test_settings_load_configured_key_and_model_without_displaying_them(monkeypatch):

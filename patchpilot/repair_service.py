@@ -58,10 +58,20 @@ def request_repair(
         proposal = parse_proposal_json(raw_response)
     except PatchValidationError as exc:
         # A response string exists, so it is an AI attempt: never auto-fallback.
+        detail = str(exc)
+        if detail.startswith((
+            "Invalid proposal JSON",
+            "Proposal must contain exactly",
+            "function_source and explanation must be strings",
+            "Proposal is missing or too large",
+        )):
+            reason = f"Gemini response parsing failed: {detail}"
+        else:
+            reason = f"Gemini candidate failed strict patch validation: {detail}"
         return RepairDecision(
             proposal=None,
             label=AI_REJECTED_LABEL,
-            reason=f"Returned candidate rejected by local validation: {exc}",
+            reason=reason,
             rejected=True,
         )
 

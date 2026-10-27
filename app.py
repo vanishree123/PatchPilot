@@ -132,7 +132,10 @@ if result is not None:
     with repair_col:
         st.markdown("#### Proposed repair")
         st.warning(result.repair_label)
-        st.caption(result.repair_reason)
+        if result.latest_attempt.provenance == "unavailable" or result.patch_rejected:
+            st.error(result.repair_reason)
+        else:
+            st.caption(result.repair_reason)
         if result.function_source is not None:
             st.code(result.function_source, language="python")
         elif result.patch_rejected:

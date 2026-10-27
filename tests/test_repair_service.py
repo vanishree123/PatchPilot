@@ -60,6 +60,16 @@ def test_mocked_returned_invalid_candidate_is_rejected_without_fallback():
     assert "predefined" not in decision.reason.lower()
 
 
+def test_mocked_malformed_json_is_labeled_as_response_parsing_failure():
+    decision = request_repair(_settings(), MockProvider("not JSON"))
+
+    assert decision.label == AI_REJECTED_LABEL
+    assert decision.rejected is True
+    assert decision.proposal is None
+    assert "response parsing failed" in decision.reason.lower()
+    assert "Try Predefined Demo Repair" not in decision.reason
+
+
 def test_configured_dashboard_backend_selects_gemini_provider_without_network(monkeypatch):
     import patchpilot.repair_service as repair_service
 
